@@ -1,0 +1,78 @@
+name: Native multipart exact source paired checks
+on:
+  push:
+    branches: [codex/native-multipart-paired]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.20.14', '1.21.13', '1.22.12']
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      redis:
+        image: redis:latest
+        ports: ['6379:6379']
+      memcached:
+        image: memcached:latest
+        ports: ['11211:11211']
+      ssdb:
+        image: tsl0922/ssdb
+        env:
+          SSDB_PORT: 8888
+        ports: ['8888:8888']
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: orm_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - name: Preserve helper and validate immutable formal and original sources
+        env:
+          MODE: native
+        run: |
+          cp .github/scripts/native-multipart.sh "$RUNNER_TEMP/native-multipart.sh"
+          bash "$RUNNER_TEMP/native-multipart.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beego-exact-native-${{ matrix.go }}
+          path: ${{ runner.temp }}/beego-proof
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.12'
+          cache: false
+      - name: Same pinned tools and exact original versus formal source
+        env:
+          MODE: quality
+        run: |
+          cp .github/scripts/native-multipart.sh "$RUNNER_TEMP/native-multipart.sh"
+          bash "$RUNNER_TEMP/native-multipart.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beego-exact-paired-quality
+          path: ${{ runner.temp }}/beego-proof
