@@ -1,0 +1,75 @@
+name: Native multipart refactored original reproduction
+on:
+  push:
+    branches: [codex/native-multipart-red-refactor]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.12'
+          cache: false
+      - name: Prove original production and frozen regression source
+        run: |
+          mkdir -p native-proof
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD:client/httplib/httplib.go)" = fca981cea515d8dc6e2eb8c4135b58864e79804b
+          test "$(git rev-parse dc42795fefddd0c3e6fef39564d5f1007369df91:client/httplib/httplib.go)" = fca981cea515d8dc6e2eb8c4135b58864e79804b
+          test "$(git rev-parse HEAD:client/httplib/multipart_file_test.go)" = f264ee41ea03ad8fe429ecd15a1ff53e649895b2
+          test "$(git hash-object client/httplib/httplib.go)" = fca981cea515d8dc6e2eb8c4135b58864e79804b
+          test "$(git hash-object client/httplib/multipart_file_test.go)" = f264ee41ea03ad8fe429ecd15a1ff53e649895b2
+          git rev-parse HEAD > native-proof/source-head-before.txt
+          git ls-files -z | xargs -0 sha256sum > native-proof/all-tracked-before.sha256
+          sha256sum client/httplib/httplib.go client/httplib/multipart_file_test.go go.mod go.sum > native-proof/relevant-before.sha256
+          go version > native-proof/go-version.txt
+          git status --porcelain --untracked-files=no > native-proof/status-before.txt
+          test ! -s native-proof/status-before.txt
+      - name: Existing native httplib controls
+        run: |
+          set +e
+          go test -json -race -count=1 -run '^(TestHttplib|TestNew.*|TestBeego.*|TestClient)$' ./client/httplib > native-proof/old-controls.jsonl 2>&1
+          result=$?
+          printf '%s\n' "$result" > native-proof/old-controls.exit
+          exit "$result"
+      - name: New regression on unchanged original production
+        if: always()
+        run: |
+          set +e
+          go test -json -race -count=1 -run '^(TestPostFileUnreadable|TestPostFileMultipartSuccess|TestMultipartBodyFileError)$' ./client/httplib > native-proof/new-regression.jsonl 2>&1
+          result=$?
+          printf '%s\n' "$result" > native-proof/new-regression.exit
+          exit "$result"
+      - name: Native formatting preview without source mutation
+        if: always()
+        run: |
+          gofmt -d client/httplib/multipart_file_test.go > native-proof/test-format.patch
+          gofmt client/httplib/multipart_file_test.go > native-proof/multipart_file_test.go
+      - name: Prove all tracked files unchanged after native execution
+        if: always()
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git hash-object client/httplib/httplib.go)" = fca981cea515d8dc6e2eb8c4135b58864e79804b
+          test "$(git hash-object client/httplib/multipart_file_test.go)" = f264ee41ea03ad8fe429ecd15a1ff53e649895b2
+          git rev-parse HEAD > native-proof/source-head-after.txt
+          git ls-files -z | xargs -0 sha256sum > native-proof/all-tracked-after.sha256
+          sha256sum client/httplib/httplib.go client/httplib/multipart_file_test.go go.mod go.sum > native-proof/relevant-after.sha256
+          cmp native-proof/all-tracked-before.sha256 native-proof/all-tracked-after.sha256
+          cmp native-proof/relevant-before.sha256 native-proof/relevant-after.sha256
+          git diff --exit-code
+          git diff --cached --exit-code
+          git status --porcelain --untracked-files=no > native-proof/status-after.txt
+          test ! -s native-proof/status-after.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beego-multipart-original-native
+          path: native-proof
