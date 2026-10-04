@@ -31,7 +31,7 @@ jobs:
           git ls-files -z | xargs -0 sha256sum > native-proof/all-tracked-before.sha256
           sha256sum client/httplib/httplib.go client/httplib/multipart_file_test.go go.mod go.sum > native-proof/relevant-before.sha256
           go version > native-proof/go-version.txt
-          git status --porcelain > native-proof/status-before.txt
+          git status --porcelain --untracked-files=no > native-proof/status-before.txt
           test ! -s native-proof/status-before.txt
       - name: Existing native httplib controls
         run: |
@@ -66,7 +66,7 @@ jobs:
           cmp native-proof/relevant-before.sha256 native-proof/relevant-after.sha256
           git diff --exit-code
           git diff --cached --exit-code
-          git status --porcelain > native-proof/status-after.txt
+          git status --porcelain --untracked-files=no > native-proof/status-after.txt
           test ! -s native-proof/status-after.txt
       - uses: actions/upload-artifact@v4
         if: always()
