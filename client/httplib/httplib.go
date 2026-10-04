@@ -385,6 +385,7 @@ func (b *BeegoHTTPRequest) buildURL(paramBody string) {
 	}
 }
 
+// handleFiles streams multipart data and propagates write errors through the body.
 func (b *BeegoHTTPRequest) handleFiles() {
 	pr, pw := io.Pipe()
 	bodyWriter := multipart.NewWriter(pw)
@@ -410,6 +411,7 @@ func (b *BeegoHTTPRequest) handleFiles() {
 	b.Header("Transfer-Encoding", "chunked")
 }
 
+// handleFileToBody writes a file part and returns wrapped creation or file errors.
 func (*BeegoHTTPRequest) handleFileToBody(bodyWriter *multipart.Writer, formname string, filename string) error {
 	fileWriter, err := bodyWriter.CreateFormFile(formname, filename)
 	if err != nil {
