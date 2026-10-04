@@ -1,0 +1,63 @@
+name: Native unchanged SQLite cancellation baseline
+on:
+  push:
+    branches: [codex/native-sqlite-cancellation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paired:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.20.14'
+          cache: false
+      - name: Test unchanged transaction cancellation on both exact sources
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/beego-proof"
+          mkdir -p "$proof"
+          printf '%s\n' "$GITHUB_SHA" > "$proof/helper-sha.txt"
+          formal=f47592d3be4a6557abaf274d4827949f59d79dab
+          base=dc42795fefddd0c3e6fef39564d5f1007369df91
+          git checkout --detach "$formal"
+          git worktree add --detach "$RUNNER_TEMP/beego-original" "$base"
+          go version > "$proof/go-version.txt"
+          export GOPATH=/home/runner/go CGO_ENABLED=1 ORM_DRIVER=sqlite3
+          result=0
+          for label in original fixed; do
+            if [ "$label" = original ]; then cd "$RUNNER_TEMP/beego-original"; expected=$base; else cd "$GITHUB_WORKSPACE"; expected=$formal; fi
+            test "$(git rev-parse HEAD)" = "$expected"
+            git rev-parse HEAD > "$proof/$label-head-before.txt"
+            git ls-files -z | xargs -0 sha256sum > "$proof/$label-all-before.sha256"
+            git status --porcelain --untracked-files=no > "$proof/$label-status-before.txt"
+            test ! -s "$proof/$label-status-before.txt"
+            export ORM_SOURCE="$RUNNER_TEMP/$label-cancel.db"
+            set +e
+            go test -json -race -count=100 -timeout=5m -run '^(TestGetDB|TestSyncDb|TestRegisterModels|TestBeginTxWithContextCanceled)$' ./client/orm > "$proof/$label-cancellation.log" 2>&1
+            status=$?
+            set -e
+            printf '%s\n' "$status" > "$proof/$label-cancellation.exit"
+            cat "$proof/$label-cancellation.log"
+            test "$status" = 0 || result=1
+            test "$(git rev-parse HEAD)" = "$expected"
+            git rev-parse HEAD > "$proof/$label-head-after.txt"
+            git ls-files -z | xargs -0 sha256sum > "$proof/$label-all-after.sha256"
+            cmp "$proof/$label-all-before.sha256" "$proof/$label-all-after.sha256"
+            git diff --exit-code
+            git diff --cached --exit-code
+            git status --porcelain --untracked-files=no > "$proof/$label-status-after.txt"
+            test ! -s "$proof/$label-status-after.txt"
+          done
+          exit "$result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beego-native-sqlite-cancellation-baseline
+          path: ${{ runner.temp }}/beego-proof
