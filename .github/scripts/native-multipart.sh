@@ -86,7 +86,7 @@ else
        docker exec beego-etcd /usr/local/bin/etcdctl endpoint health > "$proof/etcd-ready.log" 2>&1 &&
        python3 - <<'PY' > "$proof/cache-ready.log" 2>&1
 import socket
-for port, request, expected in [(6379,b'*1\r\n$4\r\nPING\r\n',b'+PONG'),(11211,b'version\r\n',b'VERSION'),(8888,b'4\nping\n\n',b'ok')]:
+for port, request, expected in [(6379,b'*1\r\n$4\r\nPING\r\n',b'+PONG'),(11211,b'version\r\n',b'VERSION'),(8888,b'4\ninfo\n\n',b'ok')]:
     with socket.create_connection(('localhost',port),timeout=2) as conn:
         conn.settimeout(2)
         conn.sendall(request)
