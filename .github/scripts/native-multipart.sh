@@ -77,6 +77,9 @@ if [ "$MODE" = quality ]; then
   goimports -d -format-only client/httplib/httplib.go client/httplib/multipart_file_test.go > "$proof/scoped-guide-format.patch"
 else
   export CGO_ENABLED=1
+  export GOPATH=/home/runner/go
+  go env > "$proof/go-env-runtime.txt"
+  printf 'GOPATH=%s\nCGO_ENABLED=%s\n' "$GOPATH" "$CGO_ENABLED" > "$proof/native-environment.txt"
   docker run -d --name beego-etcd -p 2379:2379 -p 2380:2380 gcr.io/etcd-development/etcd:v3.4.16 /usr/local/bin/etcd --name s1 --data-dir /etcd-data --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://0.0.0.0:2379 --listen-peer-urls http://0.0.0.0:2380 --initial-advertise-peer-urls http://0.0.0.0:2380 --initial-cluster s1=http://0.0.0.0:2380 --initial-cluster-token tkn --initial-cluster-state new
   sudo systemctl start mysql
   ready=false
@@ -111,13 +114,19 @@ PY
       docker exec beego-etcd /usr/local/bin/etcdctl put "$key" "$value" >> "$proof/$label-etcd-seed.log"
     done
     mkdir -p "$RUNNER_TEMP/sqlite-$label"
+    export ORM_DRIVER=sqlite3 ORM_SOURCE="$RUNNER_TEMP/sqlite-$label/orm_regular.db"
+    run_check "$label-sqlite-orm-regular" go test -json -count=1 -covermode=atomic -coverprofile="$proof/$label-sqlite-regular.cover" ./client/orm/...
     export ORM_DRIVER=sqlite3 ORM_SOURCE="$RUNNER_TEMP/sqlite-$label/orm_test.db"
     run_check "$label-sqlite-orm" go test -json -race -count=1 -covermode=atomic -coverprofile="$proof/$label-sqlite.cover" ./client/orm/...
     PGPASSWORD=postgres psql -h localhost -p 5432 -U postgres -d postgres -c 'DROP DATABASE IF EXISTS orm_test;' -c 'CREATE DATABASE orm_test;' > "$proof/$label-postgres-reset.log"
     export ORM_DRIVER=postgres ORM_SOURCE='host=localhost port=5432 user=postgres password=postgres dbname=orm_test sslmode=disable'
+    run_check "$label-postgres-orm-regular" go test -json -count=1 -covermode=atomic -coverprofile="$proof/$label-postgres-regular.cover" ./client/orm/...
+    PGPASSWORD=postgres psql -h localhost -p 5432 -U postgres -d postgres -c 'DROP DATABASE IF EXISTS orm_test;' -c 'CREATE DATABASE orm_test;' > "$proof/$label-postgres-race-reset.log"
     run_check "$label-postgres-orm" go test -json -race -count=1 -covermode=atomic -coverprofile="$proof/$label-postgres.cover" ./client/orm/...
     mysql -u root -proot -e 'DROP DATABASE IF EXISTS orm_test; CREATE DATABASE orm_test;' > "$proof/$label-mysql-reset.log" 2>&1
     export ORM_DRIVER=mysql ORM_SOURCE='root:root@/orm_test?charset=utf8'
+    run_check "$label-mysql-full-regular" go test -json -count=1 -covermode=atomic -coverprofile="$proof/$label-full-regular.cover" ./...
+    mysql -u root -proot -e 'DROP DATABASE IF EXISTS orm_test; CREATE DATABASE orm_test;' > "$proof/$label-mysql-race-reset.log" 2>&1
     run_check "$label-mysql-full" go test -json -race -count=1 -covermode=atomic -coverprofile="$proof/$label-full.cover" ./...
     run_check "$label-vet" go vet ./...
   done
